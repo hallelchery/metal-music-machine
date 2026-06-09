@@ -1,7 +1,10 @@
 #pragma once
 #include "events.h"
+#include "motor_controller.h"
 
-// The eight states of the Metal Music Machine.
+// Forward declaration avoids a circular include between fsm.h and event_detector.h.
+class EventDetector;
+
 enum class State {
     HOMING,
     IDLE,
@@ -10,34 +13,34 @@ enum class State {
     COMPOSING,
     TUNING,
     PERFORMING,
-    ERROR_STATE  // "ERROR" alone is a reserved macro in some compilers; renamed to be safe
+    ERROR_STATE  // "ERROR" is a reserved macro on some compilers
 };
 
 class FSM {
 public:
-    FSM();
+    // Dependencies are injected at construction so the FSM can fire events
+    // (via detector) and drive motors (via controller) from within during().
+    FSM(MotorController& controller, EventDetector& detector);
 
     // Called once at startup to enter the initial state.
     void begin();
 
-    // Called every loop pass. Processes one event and potentially transitions.
+    // Called every loop pass. Runs during() for the current state, then
+    // processes one event and potentially transitions.
     void update(Event evt);
 
-    // Returns the current state (useful for testing and telemetry).
-    State getState() const;
-
-    // Helper: get a human-readable name for logging
+    State       getState()          const;
     const char* stateName(State s);
     const char* eventName(Event evt);
 
 private:
-    State current_state;
-    bool homing_complete; // Guards TUNE and PERFORM until homing has run successfully
+    State            _state;
+    bool             _homingComplete;
+    MotorController& _motors;
+    EventDetector&   _detector;
 
-    // Lifecycle methods — called automatically on transition
     void onEnter(State s);
+    void during(State s);
     void onExit(State s);
-
-    // The transition logic: given current state + event, what's the next state?
     State computeNextState(State s, Event evt);
 };

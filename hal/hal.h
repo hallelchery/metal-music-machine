@@ -2,37 +2,39 @@
 #include <cstdint>
 
 // Hardware Abstraction Layer (HAL)
-// This is the ONLY place the rest of the code is allowed to talk to hardware.
-// The sim and Arduino each provide their own implementation of these functions.
-// Everything in src/ calls these — and never knows which hardware it's running on.
+//
+// The sole interface between portable firmware (src/) and hardware.
+// Both hal_sim.cpp and hal_arduino.cpp implement every function declared here.
+// Nothing in src/ may include platform-specific headers.
 
 // --- Time ---
-// Returns milliseconds elapsed since program start.
-// Mirrors Arduino's millis() so firmware logic is identical on both targets.
+// Milliseconds elapsed since program start. Mirrors Arduino's millis().
 uint32_t hal_millis();
 
 // --- Display ---
-// Prints a message to whatever "display" exists:
-// on sim → terminal (printf), on Arduino → LCD or OLED.
+// Renders a message on the output device (terminal in sim, LCD on hardware).
 void hal_displayPrint(const char* msg);
 
 // --- Telemetry ---
 void hal_telemetryInit();
 
 // Appends one row to telemetry.csv.
-// Now includes queue_depth so we can graph buffer pressure over time.
-void hal_telemetryLog(uint32_t timestamp_ms,
+void hal_telemetryLog(uint32_t    timestamp_ms,
                       const char* state_name,
                       const char* event_name,
                       uint8_t     queue_depth);
 
-// Appends one row to telemetry.csv.
-// Parameters are what happened this loop pass.
-void hal_telemetryLog(uint32_t timestamp_ms,
-                      const char* state_name,
-                      const char* event_name);
+// Appends one row including motor positions (called each loop pass in motor-active states).
+void hal_telemetryLogMotors(uint32_t    timestamp_ms,
+                            const char* state_name,
+                            int         stepper0_pos,
+                            int         stepper1_pos,
+                            int         stepper2_pos,
+                            float       servo0_angle);
 
-// --- Motor stubs (placeholders for now) ---
-// These do nothing in Iteration 0 — filled in during Iteration 2.
+// --- Motors ---
+// Step delta: positive = forward, negative = reverse.
 void hal_stepperMove(int motor_id, int steps);
+
+// Absolute angle command in degrees [0, 180].
 void hal_servoWrite(int servo_id, int angle_deg);

@@ -2,7 +2,9 @@ CXX      = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -I.
 
 SIM_SRCS = sim/main.cpp \
+           sim/sim_motor.cpp \
            src/fsm.cpp \
+           src/motor_controller.cpp \
            src/debouncer.cpp \
            src/event_queue.cpp \
            src/event_detector.cpp \

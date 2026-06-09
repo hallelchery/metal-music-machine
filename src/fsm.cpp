@@ -1,45 +1,38 @@
 #include "fsm.h"
+#include "event_detector.h"
 #include "../hal/hal.h"
 #include <cstdio>
 
-// -----------------------------------------------------------------------
-// Constructor — set initial values
-// -----------------------------------------------------------------------
-FSM::FSM() : current_state(State::HOMING), homing_complete(false) {
-    // Nothing else needed here
-}
+FSM::FSM(MotorController& controller, EventDetector& detector)
+    : _state(State::HOMING)
+    , _homingComplete(false)
+    , _motors(controller)
+    , _detector(detector)
+{}
 
-// -----------------------------------------------------------------------
-// begin() — called once at startup
-// -----------------------------------------------------------------------
 void FSM::begin() {
     printf("[FSM] Starting up. Entering HOMING.\n");
-    onEnter(current_state);
+    onEnter(_state);
 }
 
-// -----------------------------------------------------------------------
-// update() — the heart of the FSM, called every loop pass
-// -----------------------------------------------------------------------
 void FSM::update(Event evt) {
-    // EVT_NONE means nothing happened. No work to do.
+    // Run per-state continuous logic before processing any event.
+    during(_state);
+
     if (evt == Event::EVT_NONE) return;
 
-    State next = computeNextState(current_state, evt);
+    State next = computeNextState(_state, evt);
 
-    // Only transition if the state is actually changing
-    if (next != current_state) {
-        onExit(current_state);
-        current_state = next;
-        onEnter(current_state);
+    if (next != _state) {
+        onExit(_state);
+        _state = next;
+        onEnter(_state);
     }
-
-    // Log this event to telemetry regardless of whether a transition occurred
-    hal_telemetryLog(hal_millis(), stateName(current_state), eventName(evt), 0);
 }
 
-// -----------------------------------------------------------------------
-// onEnter() — runs once when we ARRIVE in a state
-// -----------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// onEnter — runs once when a state is entered
+// -----------------------------------------------------------------------------
 void FSM::onEnter(State s) {
     printf("[FSM] --> Entering: %s\n", stateName(s));
     hal_displayPrint(stateName(s));
@@ -47,82 +40,121 @@ void FSM::onEnter(State s) {
     switch (s) {
         case State::HOMING:
             printf("  [HOMING] Driving motors to reference positions...\n");
+            _motors.startHoming();
             break;
+
         case State::IDLE:
-            if (homing_complete) {
+            if (_homingComplete) {
                 printf("  [IDLE] Ready. Press C=Compose, P=Pre-compose, T=Tune, X=Perform.\n");
             } else {
                 printf("  [IDLE] Homing not complete. TUNE and PERFORM are locked.\n");
             }
             break;
+
         case State::SLEEP:
-            printf("  [SLEEP] Going to sleep. Motors de-energized.\n");
+            printf("  [SLEEP] Entering low-power standby. Motors de-energized.\n");
+            _motors.deenergizeAll();
             break;
+
         case State::PRE_COMPOSING:
             printf("  [PRE_COMPOSING] Navigate notes. N=play note.\n");
             break;
+
         case State::COMPOSING:
             printf("  [COMPOSING] Running Markov chain composer...\n");
             break;
+
         case State::TUNING:
             printf("  [TUNING] Calibrating string tensions...\n");
+            _motors.startTuning();
             break;
+
         case State::PERFORMING:
             printf("  [PERFORMING] Playing note sequence.\n");
             break;
+
         case State::ERROR_STATE:
             printf("  [ERROR] FAULT DETECTED. Hold S for 2 seconds to reset.\n");
             break;
     }
 }
 
-// -----------------------------------------------------------------------
-// onExit() — runs once when we LEAVE a state
-// -----------------------------------------------------------------------
-void FSM::onExit(State s) {
-    printf("[FSM] <-- Exiting: %s\n", stateName(s));
+// -----------------------------------------------------------------------------
+// during — runs every loop pass while inside a state
+// -----------------------------------------------------------------------------
+void FSM::during(State s) {
+    switch (s) {
+        case State::HOMING:
+            _motors.tick(hal_millis());
+            if (_motors.isFaulted()) {
+                _detector.injectFault();
+            } else if (_motors.isHomingComplete()) {
+                printf("  [HOMING] All steppers at reference. Homing complete.\n");
+                _homingComplete = true;
+                _detector.injectDone();
+            }
+            break;
 
-    // Special logic: leaving HOMING successfully sets the guard flag
-    if (s == State::HOMING) {
-        // onExit is called just before we transition.
-        // We'll set homing_complete in computeNextState for precision,
-        // but we could also handle it here.
+        case State::TUNING:
+            _motors.tick(hal_millis());
+            if (_motors.isFaulted()) {
+                _detector.injectFault();
+            } else if (_motors.isTuningComplete()) {
+                printf("  [TUNING] All steppers at calibration positions. Tuning complete.\n");
+                _detector.injectDone();
+            }
+            break;
+
+        case State::SLEEP:
+            // Motors remain de-energized; nothing to tick.
+            break;
+
+        default:
+            break;
     }
 }
 
-// -----------------------------------------------------------------------
-// computeNextState() — the full transition table from the spec
-// -----------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// onExit — runs once when a state is left
+// -----------------------------------------------------------------------------
+void FSM::onExit(State s) {
+    printf("[FSM] <-- Exiting: %s\n", stateName(s));
+
+    if (s == State::SLEEP) {
+        _motors.energizeAll();
+        printf("  [SLEEP] Motors re-energized.\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// computeNextState — full transition table
+// -----------------------------------------------------------------------------
 State FSM::computeNextState(State s, Event evt) {
 
-    // EVT_FAULT is highest priority — always wins, from any state
     if (evt == Event::EVT_FAULT) return State::ERROR_STATE;
 
     switch (s) {
 
         case State::HOMING:
-            if (evt == Event::EVT_BTN_STOP) return State::IDLE;    // homing_complete stays false
-            if (evt == Event::EVT_DONE) {
-                homing_complete = true;  // Successful homing!
-                return State::IDLE;
-            }
+            if (evt == Event::EVT_BTN_STOP) return State::IDLE;
+            if (evt == Event::EVT_DONE)     return State::IDLE;
             break;
 
         case State::IDLE:
-            if (evt == Event::EVT_BTN_COMPOSE)      return State::COMPOSING;
-            if (evt == Event::EVT_IDLE_TIMEOUT)     return State::SLEEP;
+            if (evt == Event::EVT_BTN_COMPOSE)     return State::COMPOSING;
+            if (evt == Event::EVT_IDLE_TIMEOUT)    return State::SLEEP;
             if (evt == Event::EVT_BTN_TUNE) {
-                if (homing_complete) return State::TUNING; // Guard necessary for fret calibration
-                printf("  [IDLE] Home first! Homing not complete.\n");
-            } 
+                if (_homingComplete) return State::TUNING;
+                printf("  [IDLE] Home first!\n");
+            }
             if (evt == Event::EVT_BTN_PRE_COMPOSE) {
-                if (homing_complete) return State::PRE_COMPOSING;
-                printf("  [IDLE] Home first! Homing not complete.\n");
-                return State::IDLE;  // Stay put — guard blocked transition
+                if (_homingComplete) return State::PRE_COMPOSING;
+                printf("  [IDLE] Home first!\n");
+                return State::IDLE;
             }
             if (evt == Event::EVT_BTN_PERFORM) {
-                if (homing_complete) return State::PERFORMING;
-                printf("  [IDLE] Home first! Homing not complete.\n");
+                if (_homingComplete) return State::PERFORMING;
+                printf("  [IDLE] Home first!\n");
                 return State::IDLE;
             }
             break;
@@ -132,45 +164,44 @@ State FSM::computeNextState(State s, Event evt) {
             break;
 
         case State::TUNING:
-            if (evt == Event::EVT_BTN_STOP)         return State::IDLE;
-            if (evt == Event::EVT_DONE)             return State::IDLE;
+            if (evt == Event::EVT_BTN_STOP) return State::IDLE;
+            if (evt == Event::EVT_DONE)     return State::IDLE;
             break;
 
         case State::PRE_COMPOSING:
-            if (evt == Event::EVT_BTN_STOP)         return State::IDLE;
-            if (evt == Event::EVT_BTN_COMPOSE)      return State::COMPOSING;
-            if (evt == Event::EVT_IDLE_TIMEOUT)     return State::SLEEP;
+            if (evt == Event::EVT_BTN_STOP)    return State::IDLE;
+            if (evt == Event::EVT_BTN_COMPOSE) return State::COMPOSING;
+            if (evt == Event::EVT_IDLE_TIMEOUT) return State::SLEEP;
             if (evt == Event::EVT_NOTE_PLAY) {
                 printf("  [PRE_COMPOSING] Note played (stub).\n");
-                return State::PRE_COMPOSING;  // Stay; real motor work added later
+                return State::PRE_COMPOSING;
             }
             break;
 
         case State::COMPOSING:
-            if (evt == Event::EVT_BTN_STOP)         return State::IDLE;
-            if (evt == Event::EVT_BTN_PERFORM)      return State::PERFORMING;
-            if (evt == Event::EVT_IDLE_TIMEOUT)     return State::SLEEP;
-            if (evt == Event::EVT_DONE)             return State::PERFORMING;
+            if (evt == Event::EVT_BTN_STOP)    return State::IDLE;
+            if (evt == Event::EVT_BTN_PERFORM) return State::PERFORMING;
+            if (evt == Event::EVT_IDLE_TIMEOUT) return State::SLEEP;
+            if (evt == Event::EVT_DONE)        return State::PERFORMING;
             break;
 
         case State::PERFORMING:
-            if (evt == Event::EVT_BTN_STOP)         return State::IDLE;
-            if (evt == Event::EVT_DONE)             return State::IDLE;
+            if (evt == Event::EVT_BTN_STOP) return State::IDLE;
+            if (evt == Event::EVT_DONE)     return State::IDLE;
             break;
 
         case State::ERROR_STATE:
-            // Hold-to-reset: for now, a single STOP press resets (hold logic comes in Iter 1)
-            if (evt == Event::EVT_BTN_STOP)         return State::IDLE;
+            if (evt == Event::EVT_BTN_STOP) return State::IDLE;
             break;
     }
 
-    return s; // Default: stay in current state
+    return s;
 }
 
-// -----------------------------------------------------------------------
-// Helpers — human-readable names for logging
-// -----------------------------------------------------------------------
-State FSM::getState() const { return current_state; }
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
+State FSM::getState() const { return _state; }
 
 const char* FSM::stateName(State s) {
     switch (s) {
