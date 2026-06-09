@@ -2,29 +2,19 @@
 #include <cstring>
 #include "../src/fsm.h"
 #include "../src/events.h"
+#include "../src/event_queue.h"
+#include "../src/event_detector.h"
 #include "../hal/hal.h"
 
-// Translates a keypress character into an FSM Event.
-Event keyToEvent(char key) {
-    switch (key) {
-        case 'h': return Event::EVT_DONE;           // simulate homing complete
-        case 'c': return Event::EVT_BTN_COMPOSE;
-        case 'p': return Event::EVT_BTN_PRE_COMPOSE;
-        case 't': return Event::EVT_BTN_TUNE;
-        case 'x': return Event::EVT_BTN_PERFORM;
-        case 's': return Event::EVT_BTN_STOP;
-        case 'n': return Event::EVT_NOTE_PLAY;
-        case 'z': return Event::EVT_FAULT;
-        case 'i': return Event::EVT_IDLE_TIMEOUT;   // manually trigger timeout for testing
-        default:  return Event::EVT_BTN_WAKE;       // any other key = wake from sleep
-    }
-}
-
 int main() {
-    // One-time setup
     hal_telemetryInit();
 
-    FSM fsm;
+    FSM           fsm;
+    EventQueue    queue;
+    // 10-second idle timeout. Lowercase 'u' suffix = unsigned literal,
+    // matching the uint32_t parameter type exactly.
+    EventDetector detector(10000u);
+
     fsm.begin();
 
     printf("\nKeys: h=homing_done  c=compose  p=pre_compose  t=tune\n");
@@ -33,21 +23,48 @@ int main() {
 
     char input[16];
 
-    // The main loop — runs forever until Ctrl+C
     while (true) {
-        // Read a line of input from the terminal
         if (fgets(input, sizeof(input), stdin) == nullptr) break;
-
-        // fgets includes the newline; ignore empty presses
         if (input[0] == '\n') continue;
 
+        // --- Translate keypress into a detector signal ---
+        // We no longer build an Event directly. Instead we tell the
+        // detector what raw input just arrived, and let it handle
+        // debouncing, priority, and queueing.
         char key = input[0];
-        Event evt = keyToEvent(key);
+        switch (key) {
+            case 'h': detector.injectDone();                          break;
+            case 'z': detector.injectFault();                         break;
+            case 'n': detector.injectNotePending();                   break;
+            case 's': detector.injectStop();                          break;
+            case 'c': detector.injectCompose();                       break;
+            case 'p': detector.injectPreCompose();                    break;
+            case 't': detector.injectTune();                          break;
+            case 'x': detector.injectPerform();                       break;
+            case 'i': // force idle timeout for testing
+                detector.resetIdleTimer(0); break;
+            default:  // any other key = wake signal (all buttons)
+                detector.injectWake(); break;
+        }
 
-        // Hand the event to the FSM
+        // --- The main loop: detect → enqueue → dequeue → FSM → log ---
+        // This is the heartbeat pattern every iteration builds on.
+        uint32_t now = hal_millis();
+
+        // 1. Detector scans inputs, debounces, pushes to queue
+        detector.update(fsm.getState(), now, queue);
+
+        // 2. FSM drains one event per pass
+        Event evt = queue.pop();
         fsm.update(evt);
 
-        printf("\n"); // Blank line for readability between events
+        // 3. Telemetry: what happened this pass, and how loaded was the queue?
+        hal_telemetryLog(now,
+                         fsm.stateName(fsm.getState()),
+                         fsm.eventName(evt),
+                         queue.depth());
+
+        printf("\n");
     }
 
     return 0;

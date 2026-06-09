@@ -27,14 +27,19 @@ void hal_displayPrint(const char* msg) {
 void hal_telemetryInit() {
     telemetry_file = fopen("telemetry.csv", "w");
     if (telemetry_file) {
-        fprintf(telemetry_file, "timestamp_ms,state,event\n");
+        // Added queue_depth column that shows buffer pressure during stress tests.
+        fprintf(telemetry_file, "timestamp_ms,state,event,queue_depth\n");
     }
 }
 
-void hal_telemetryLog(uint32_t timestamp_ms, const char* state_name, const char* event_name) {
+void hal_telemetryLog(uint32_t timestamp_ms,
+                      const char* state_name,
+                      const char* event_name,
+                      uint8_t queue_depth) {
     if (telemetry_file) {
-        fprintf(telemetry_file, "%u,%s,%s\n", timestamp_ms, state_name, event_name);
-        fflush(telemetry_file); // Write to disk immediately — don't wait for buffer to fill
+        fprintf(telemetry_file, "%u,%s,%s,%u\n",
+                timestamp_ms, state_name, event_name, queue_depth);
+        fflush(telemetry_file);
     }
 }
 

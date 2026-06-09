@@ -26,6 +26,10 @@ public:
     // Returns the current state (useful for testing and telemetry).
     State getState() const;
 
+    // Helper: get a human-readable name for logging
+    const char* stateName(State s);
+    const char* eventName(Event evt);
+
 private:
     State current_state;
     bool homing_complete; // Guards TUNE and PERFORM until homing has run successfully
@@ -36,8 +40,4 @@ private:
 
     // The transition logic: given current state + event, what's the next state?
     State computeNextState(State s, Event evt);
-
-    // Helper: get a human-readable name for logging
-    const char* stateName(State s);
-    const char* eventName(Event evt);
 };
