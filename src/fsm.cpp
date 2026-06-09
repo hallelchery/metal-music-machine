@@ -34,7 +34,7 @@ void FSM::update(Event evt) {
     }
 
     // Log this event to telemetry regardless of whether a transition occurred
-    hal_telemetryLog(hal_millis(), stateName(current_state), eventName(evt));
+    hal_telemetryLog(hal_millis(), stateName(current_state), eventName(evt), 0);
 }
 
 // -----------------------------------------------------------------------

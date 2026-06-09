@@ -1,9 +1,11 @@
 CXX      = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -I.
 
-# Source files for the simulator target
 SIM_SRCS = sim/main.cpp \
            src/fsm.cpp \
+           src/debouncer.cpp \
+           src/event_queue.cpp \
+           src/event_detector.cpp \
            hal/hal_sim.cpp
 
 SIM_OUT  = sim_mmm

@@ -17,8 +17,14 @@ uint32_t hal_millis();
 void hal_displayPrint(const char* msg);
 
 // --- Telemetry ---
-// Opens the CSV log file. Call once at startup.
 void hal_telemetryInit();
+
+// Appends one row to telemetry.csv.
+// Now includes queue_depth so we can graph buffer pressure over time.
+void hal_telemetryLog(uint32_t timestamp_ms,
+                      const char* state_name,
+                      const char* event_name,
+                      uint8_t     queue_depth);
 
 // Appends one row to telemetry.csv.
 // Parameters are what happened this loop pass.
