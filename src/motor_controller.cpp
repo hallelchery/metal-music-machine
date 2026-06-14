@@ -25,6 +25,9 @@ MotorController::MotorController()
         _servoAngle[i]  = 90.0f;
         _servoTarget[i] = 90.0f;
     }
+    for (uint8_t i = 0; i < NUM_STRINGS; i++) {
+        _pluckState[i] = false;   // start parked at UP position
+    }
 }
 
 void MotorController::tick(uint32_t nowMs) {
@@ -122,11 +125,33 @@ void MotorController::commandFretLift(int string_id) {
 }
 
 void MotorController::commandPluck(int string_id) {
-    setServoTarget(_pluckServoId(string_id), PLUCK_STRIKE_ANGLE);
+    // Toggle direction: flip the pluck state and move to the opposite angle.
+    _pluckState[string_id] = !_pluckState[string_id];
+    float target = _pluckState[string_id] ? PLUCK_DOWN_ANGLE : PLUCK_UP_ANGLE;
+    setServoTarget(_pluckServoId(string_id), target);
 }
 
 void MotorController::commandTuningServo(int string_id, float angle_deg) {
     setServoTarget(_tuningServoId(string_id), angle_deg);
+}
+
+void MotorController::commandDamperEngage(int string_id) {
+    setServoTarget(_damperServoId(string_id), DAMPER_ENGAGE_ANGLE);
+}
+
+void MotorController::commandDamperLift(int string_id) {
+    setServoTarget(_damperServoId(string_id), DAMPER_LIFT_ANGLE);
+}
+
+void MotorController::parkAll() {
+    for (int s = 0; s < NUM_STRINGS; s++) {
+        // Pluck to up position regardless of toggle state.
+        _pluckState[s] = false;
+        setServoTarget(_pluckServoId(s), PLUCK_UP_ANGLE);
+        setServoTarget(_fretServoId(s), FRET_LIFT_ANGLE);
+        setServoTarget(_damperServoId(s), DAMPER_LIFT_ANGLE);
+        setStepperTarget(_fretStepperId(s), HOMING_TARGET);
+    }
 }
 
 // --- Status queries ---
@@ -149,12 +174,31 @@ bool MotorController::isFretAtTarget(int string_id) const {
 
 bool MotorController::isPluckComplete(int string_id) const {
     uint8_t id = _pluckServoId(string_id);
-    return std::abs(_servoAngle[id] - PLUCK_STRIKE_ANGLE) < SERVO_EPSILON;
+    return std::abs(_servoAngle[id] - _servoTarget[id]) < SERVO_EPSILON;
 }
 
 bool MotorController::isTuningServoAtTarget(int string_id) const {
     uint8_t id = _tuningServoId(string_id);
     return std::abs(_servoAngle[id] - _servoTarget[id]) < SERVO_EPSILON;
+}
+
+bool MotorController::isDamperAtTarget(int string_id) const {
+    uint8_t id = _damperServoId(string_id);
+    return std::abs(_servoAngle[id] - _servoTarget[id]) < SERVO_EPSILON;
+}
+
+bool MotorController::isParkComplete() const {
+    for (int s = 0; s < NUM_STRINGS; s++) {
+        uint8_t pluckId  = _pluckServoId(s);
+        uint8_t fretSrvId = _fretServoId(s);
+        uint8_t dampId   = _damperServoId(s);
+        uint8_t stepperId = _fretStepperId(s);
+        if (std::abs(_servoAngle[pluckId]   - PLUCK_UP_ANGLE)    >= SERVO_EPSILON) return false;
+        if (std::abs(_servoAngle[fretSrvId] - FRET_LIFT_ANGLE)   >= SERVO_EPSILON) return false;
+        if (std::abs(_servoAngle[dampId]    - DAMPER_LIFT_ANGLE) >= SERVO_EPSILON) return false;
+        if (_stepperPos[stepperId] != HOMING_TARGET)                               return false;
+    }
+    return true;
 }
 
 bool MotorController::isFaulted() const { return _faulted; }

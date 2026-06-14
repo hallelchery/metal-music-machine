@@ -3,43 +3,42 @@
 
 static constexpr uint8_t NUM_STRINGS    = 3;
 
-// Per-string flat motor ID derivation (see hardware architecture doc):
+// Per-string flat motor ID derivation:
 //   tuning_servo_id  = string_id          (routed via demux)
 //   fret_stepper_id  = string_id
 //   fret_servo_id    = string_id + 3
 //   pluck_servo_id   = string_id + 6
-static constexpr uint8_t STEPPER_COUNT  = NUM_STRINGS;       // one fret stepper per string
-static constexpr uint8_t SERVO_COUNT    = NUM_STRINGS * 3;   // tuning + fret + pluck per string
+//   damper_servo_id  = string_id + 9
+static constexpr uint8_t STEPPER_COUNT  = NUM_STRINGS;
+static constexpr uint8_t SERVO_COUNT    = NUM_STRINGS * 4;   // tuning + fret + pluck + damper
 
 static constexpr int   HOMING_TARGET    = 0;
-static constexpr int   TUNING_FRET_HOME = 0;   // fret steppers park at 0 during tuning
+static constexpr int   TUNING_FRET_HOME = 0;
 
-// Fret position table: maps note index [0..11] to stepper step position.
-// Placeholder values — real calibration data replaces these at hardware bring-up.
 static constexpr int FRET_POSITIONS[12] = {
      0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550
 };
 
-// Servo angle for pressing a string (fret servo down / up).
 static constexpr float FRET_PRESS_ANGLE  = 45.0f;
 static constexpr float FRET_LIFT_ANGLE   = 135.0f;
 
-// Pluck servo sweep angles.
-static constexpr float PLUCK_STRIKE_ANGLE = 30.0f;
-static constexpr float PLUCK_REST_ANGLE   = 90.0f;
+// Pluck servo angles. During operation the servo toggles between these two
+// angles — either direction produces a valid pluck stroke. The "up" position
+// is also the park position used during clean shutdown.
+static constexpr float PLUCK_UP_ANGLE   = 90.0f;
+static constexpr float PLUCK_DOWN_ANGLE = 30.0f;
 
-// MotorController: the sole component that issues hal_stepperMove / hal_servoWrite.
-// The FSM interacts with motors entirely through this class.
-//
-// Non-blocking contract: every command sets targets and returns immediately.
-// tick() advances all motors by one time-slice per call.
+// Damper servo angles.
+static constexpr float DAMPER_ENGAGE_ANGLE  = 45.0f;   // damper touches string
+static constexpr float DAMPER_LIFT_ANGLE    = 135.0f;  // damper clear of string
+
 class MotorController {
 public:
     MotorController();
 
     void tick(uint32_t nowMs);
 
-    // --- Low-level commands (used by homing) ---
+    // --- Low-level commands ---
     void startHoming();
     void setStepperTarget(uint8_t motor_id, int target_pos);
     void setServoTarget(uint8_t servo_id, float angle_deg);
@@ -47,25 +46,31 @@ public:
     void deenergizeAll();
     void energizeAll();
 
-    // --- Per-string musical commands (used by TUNING, PERFORMING, PRE_COMPOSING) ---
-    // commandFret: move fret stepper to the position for note_index, then press fret servo.
+    // --- Per-string musical commands ---
     void commandFret(int string_id, int note_index);
-
-    // commandFretLift: lift the fret servo (release string).
     void commandFretLift(int string_id);
 
-    // commandPluck: fire the pluck servo sweep for the given string.
+    // Toggle pluck: alternates between PLUCK_DOWN_ANGLE and PLUCK_UP_ANGLE each call.
+    // Either direction produces a pluck stroke; no operational distinction is made.
     void commandPluck(int string_id);
 
-    // commandTuningServo: set tuning servo angle for the given string.
-    // Caller must have called hal_selectTuningString(string_id) first.
     void commandTuningServo(int string_id, float angle_deg);
+
+    void commandDamperEngage(int string_id);
+    void commandDamperLift(int string_id);
+
+    // Park all actuators to their clean resting positions:
+    // pluck → up, fret servo → lifted, damper → lifted, fret stepper → home.
+    // Called on clean shutdown and SLEEP entry.
+    void parkAll();
 
     // --- Status queries ---
     bool isHomingComplete();
     bool isFretAtTarget(int string_id)        const;
     bool isPluckComplete(int string_id)       const;
     bool isTuningServoAtTarget(int string_id) const;
+    bool isDamperAtTarget(int string_id)      const;
+    bool isParkComplete()                     const;
     bool isFaulted()                          const;
     void clearFault();
 
@@ -79,17 +84,17 @@ private:
     float _servoAngle[SERVO_COUNT];
     float _servoTarget[SERVO_COUNT];
 
-    bool _homingActive;
-    bool _faulted;
-
+    bool     _homingActive;
+    bool     _faulted;
+    bool     _pluckState[NUM_STRINGS];   // false = currently at UP, true = currently at DOWN
     uint32_t _lastTickMs;
 
     void _tickStepper(uint8_t id, uint32_t elapsed);
     void _tickServo(uint8_t id, uint32_t elapsed);
 
-    // ID derivation helpers — keep the indexing convention in one place.
     uint8_t _tuningServoId(int s)  const { return static_cast<uint8_t>(s); }
     uint8_t _fretStepperId(int s)  const { return static_cast<uint8_t>(s); }
     uint8_t _fretServoId(int s)    const { return static_cast<uint8_t>(s + 3); }
     uint8_t _pluckServoId(int s)   const { return static_cast<uint8_t>(s + 6); }
+    uint8_t _damperServoId(int s)  const { return static_cast<uint8_t>(s + 9); }
 };
