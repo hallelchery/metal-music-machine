@@ -4,6 +4,10 @@ Metal Music Machine — Telemetry Visualizer
 Reads telemetry.csv produced by the simulator and generates portfolio graphs.
 """
 
+import matplotlib
+matplotlib.use('Agg')  # uses non-interactive backend, no display needed
+import matplotlib.pyplot as plt
+
 import sys
 import os
 import pandas as pd
@@ -27,7 +31,7 @@ STATE_COLORS = {
 
 
 def load(path):
-    df = pd.read_csv(path, dtype=str)
+    df = pd.read_csv(path, dtype=str, on_bad_lines='skip')
     df['timestamp_ms'] = pd.to_numeric(df['timestamp_ms'], errors='coerce')
     for col in ['queue_depth', 's0_pos', 's1_pos', 's2_pos', 'servo0_angle',
                 'tune_string', 'tune_attempt', 'measured_hz', 'target_hz',
@@ -150,7 +154,8 @@ def main():
     out_path = os.path.join(OUT_DIR, 'telemetry_report.png')
     plt.savefig(out_path, dpi=150)
     print(f'Saved: {out_path}')
-    plt.show()
+    plt.savefig("output_plot.png")  # saves plot as a file
+    print("Plot saved as output_plot.png")
 
 
 if __name__ == '__main__':
