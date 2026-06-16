@@ -39,10 +39,11 @@ int main() {
     fsm.begin();
 
     printf("\n=== Metal Music Machine Simulator ===\n");
-    printf("Global:       s=stop  z=fault  i=force_idle_timeout  q=quit(park)\n");
-    printf("IDLE:         c=compose  p=pre_compose  t=tune  x=perform\n");
+    printf("Global:        s=stop  z=fault  i=force_idle_timeout  q=quit(park)\n");
+    printf("IDLE:          c=compose  p=pre_compose  t=tune  x=perform\n");
     printf("PRE_COMPOSING: n=play_note  x=next_note  t=next_string  c=go_compose\n");
-    printf("SLEEP:        [any key]=wake\n\n");
+    printf("SLEEP:         [any key]=wake\n");
+    printf("Stress:        f=event_flood\n\n");
 
     termios original = enableRawInput();
     bool quitting = false;
@@ -53,7 +54,7 @@ int main() {
 
         if (!quitting && key) {
             switch (key) {
-                case 'z': detector.injectFault();      break;
+                case 'z': detector.injectFault();       break;
                 case 'n': detector.injectNotePending(); break;
                 case 's': detector.injectStop();        break;
                 case 'c': detector.injectCompose();     break;
@@ -61,6 +62,18 @@ int main() {
                 case 't': detector.injectTune();        break;
                 case 'x': detector.injectPerform();     break;
                 case 'i': detector.resetIdleTimer(0);   break;
+
+                // --- Stress test keys ---
+                case 'f': {
+                    printf("[STRESS] Event flood: injecting 6 events\n");
+                    detector.injectCompose();
+                    detector.injectTune();
+                    detector.injectPerform();
+                    detector.injectPreCompose();
+                    detector.injectCompose();
+                    detector.injectTune();
+                    break;
+                }
                 case 'q':
                     printf("\n[SIM] Quit requested — parking all actuators...\n");
                     quitting = true;
@@ -69,7 +82,7 @@ int main() {
                 case 3:
                     restoreInput(original);
                     return 0;
-                default:  detector.injectWake(); break;
+                default: detector.injectWake(); break;
             }
         }
 

@@ -17,8 +17,8 @@
 class EventDetector {
 public:
     // idleTimeoutMs: milliseconds of inactivity before EVT_IDLE_TIMEOUT fires.
-    // Default is 10 seconds — easy to override in tests.
-    explicit EventDetector(uint32_t idleTimeoutMs = 10000);
+    // Default is 30 seconds — easy to override in tests.
+    explicit EventDetector(uint32_t idleTimeoutMs = 30000);
 
     // Call once per loop pass.
     // Reads raw button states, updates debouncers, detects the
