@@ -279,10 +279,17 @@ void FSM::_duringPerforming() {
     uint32_t now    = hal_millis();
     int      seqLen = _composer.getLength();
 
-    if (_perfNoteIdx >= seqLen) {
-        printf("  [PERFORMING] Sequence complete. Firing EVT_DONE.\n");
-        _detector.injectDone();
+    // Guard: already fired completion event, waiting for transition.
+    if (_perfNoteIdx > seqLen) return;
+
+    if (_perfNoteIdx == seqLen) {
+        if (seqLen == 0) {
+            printf("  [PERFORMING] No sequence loaded. Firing EVT_DONE.\n");
+        } else {
+            printf("  [PERFORMING] Sequence complete. Firing EVT_DONE.\n");
+        }
         _perfNoteIdx = seqLen + 1;
+        _detector.injectDone();
         return;
     }
 

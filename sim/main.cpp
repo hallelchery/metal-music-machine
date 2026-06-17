@@ -39,11 +39,16 @@ int main() {
     fsm.begin();
 
     printf("\n=== Metal Music Machine Simulator ===\n");
-    printf("Global:        s=stop  z=fault  i=force_idle_timeout  q=quit(park)\n");
-    printf("IDLE:          c=compose  p=pre_compose  t=tune  x=perform\n");
-    printf("PRE_COMPOSING: n=play_note  x=next_note  t=next_string  c=go_compose\n");
-    printf("SLEEP:         [any key]=wake\n");
-    printf("Stress:        f=event_flood\n\n");
+    printf("--- Global keys (any state) ---\n");
+    printf("  s = stop/abort    z = inject fault    q = quit (parks motors)\n");
+    printf("--- IDLE ---\n");
+    printf("  c = compose    p = pre-compose    t = tune    x = perform\n");
+    printf("--- PRE_COMPOSING ---\n");
+    printf("  n = play note    x = next note    t = next string    c = go to compose\n");
+    printf("--- SLEEP ---\n");
+    printf("  [any key except s/z/q] = wake\n");
+    printf("--- Debug ---\n");
+    printf("  i = force idle timeout (IDLE/PRE_COMPOSING/COMPOSING only)\n\n");
 
     termios original = enableRawInput();
     bool quitting = false;
@@ -52,28 +57,30 @@ int main() {
         char key = 0;
         read(STDIN_FILENO, &key, 1);
 
+        State currentState = fsm.getState();
+
         if (!quitting && key) {
             switch (key) {
-                case 'z': detector.injectFault();       break;
-                case 'n': detector.injectNotePending(); break;
-                case 's': detector.injectStop();        break;
-                case 'c': detector.injectCompose();     break;
-                case 'p': detector.injectPreCompose();  break;
-                case 't': detector.injectTune();        break;
-                case 'x': detector.injectPerform();     break;
-                case 'i': detector.resetIdleTimer(0);   break;
-
-                // --- Stress test keys ---
-                case 'f': {
-                    printf("[STRESS] Event flood: injecting 6 events\n");
-                    detector.injectCompose();
-                    detector.injectTune();
-                    detector.injectPerform();
-                    detector.injectPreCompose();
-                    detector.injectCompose();
-                    detector.injectTune();
+                case 'z': detector.injectFault();        break;
+                case 'n': detector.injectNotePending();  break;
+                case 's': detector.injectStop();         break;
+                case 'c':
+                    if (currentState == State::SLEEP)    detector.injectWake();
+                    else                                 detector.injectCompose();
                     break;
-                }
+                case 'p':
+                    if (currentState == State::SLEEP)    detector.injectWake();
+                    else                                 detector.injectPreCompose();
+                    break;
+                case 't':
+                    if (currentState == State::SLEEP)    detector.injectWake();
+                    else                                 detector.injectTune();
+                    break;
+                case 'x':
+                    if (currentState == State::SLEEP)    detector.injectWake();
+                    else                                 detector.injectPerform();
+                    break;
+                case 'i': detector.injectIdleTimeout();  break;
                 case 'q':
                     printf("\n[SIM] Quit requested — parking all actuators...\n");
                     quitting = true;
@@ -82,7 +89,9 @@ int main() {
                 case 3:
                     restoreInput(original);
                     return 0;
-                default: detector.injectWake(); break;
+                default:
+                    detector.injectWake();
+                    break;
             }
         }
 
@@ -92,11 +101,14 @@ int main() {
         if (!quitting) {
             detector.update(fsm.getState(), now, queue);
             Event evt = queue.pop();
+            
+            const char* stateBeforeUpdate = fsm.stateName(fsm.getState());
+            
             fsm.update(evt);
 
             if (evt != Event::EVT_NONE) {
                 hal_telemetryLog(now,
-                                 fsm.stateName(fsm.getState()),
+                                 stateBeforeUpdate,
                                  fsm.eventName(evt),
                                  queue.depth());
             }
