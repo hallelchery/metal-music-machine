@@ -29,6 +29,8 @@ def load_notes(csv_path: str) -> list[tuple[int, int]]:
         reader = csv.DictReader(f)
         for row in reader:
             row = {k.strip(): (v.strip() if v is not None else "") for k, v in row.items()}
+            if row.get("state", "") != "PERFORMING":
+                continue
             ni = row.get("note_index", "")
             ns = row.get("note_string", "")
             if ni and ns:

@@ -39,7 +39,8 @@ void hal_telemetryLogTuning(uint32_t    timestamp_ms,
 // Logs a note selection event from PRE_COMPOSING.
 void hal_telemetryLogNote(uint32_t    timestamp_ms,
                           int         note_index,
-                          int         string_id);
+                          int         string_id,
+                          const char* state_name);
 
 // --- Motors ---
 void hal_stepperMove(int motor_id, int steps);

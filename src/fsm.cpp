@@ -333,6 +333,7 @@ void FSM::_duringPerforming() {
     if ((now - _perfGapStart) >= PERFORM_NOTE_GAP_MS) {
         printf("  [PERFORMING] Note %d done (string %d, note_idx %d).\n",
                _perfNoteIdx, note.string_id, note.note_index);
+        hal_telemetryLogNote(now, note.note_index, note.string_id, "PERFORMING");
         _motors.commandDamperLift(note.string_id);
         _perfNoteIdx++;
         _perfFretDone     = false;
@@ -379,10 +380,10 @@ void FSM::_duringPreComposing() {
             break;
 
         case PreCompSubState::NOTE_IDLE:
-            hal_telemetryLogNote(now, _preCompNoteIdx, _preCompStringIdx);
+            hal_telemetryLogNote(now, _preCompNoteIdx, _preCompStringIdx, "PRE_COMPOSING");
             printf("  [PRE_COMPOSING] Note %d on string %d played. Back to menu.\n",
                    _preCompNoteIdx, _preCompStringIdx);
-            printf("  [PRE_COMPOSING] Note: %d  String: %d  |  UP/DOWN=scroll  N=play  C=compose\n",
+            printf("  [PRE_COMPOSING] Note: %d  String: %d  |  t =scroll string  x=scroll note  n=play  C=compose\n",
                    _preCompNoteIdx, _preCompStringIdx);
             _preCompPluckStart = 0;
             _preCompSub = PreCompSubState::MENU_NAVIGATE;

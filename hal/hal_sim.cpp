@@ -76,12 +76,13 @@ void hal_telemetryLogTuning(uint32_t    timestamp_ms,
     fflush(telemetry_file);
 }
 
-void hal_telemetryLogNote(uint32_t timestamp_ms,
-                          int      note_index,
-                          int      string_id) {
+void hal_telemetryLogNote(uint32_t    timestamp_ms,
+                          int         note_index,
+                          int         string_id, 
+                          const char* state_name) {
     if (!telemetry_file) return;
-    fprintf(telemetry_file, "%u,PRE_COMPOSING,NOTE_SELECT,0,,,,,,,,,,%d,%d\n",
-        timestamp_ms, note_index, string_id);
+    fprintf(telemetry_file, "%u,%s,NOTE_SELECT,0,,,,,,,,,,%d,%d\n",
+        timestamp_ms, state_name, note_index, string_id);
     fflush(telemetry_file);
 }
 
