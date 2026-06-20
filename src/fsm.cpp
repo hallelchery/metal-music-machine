@@ -114,6 +114,7 @@ void FSM::onEnter(State s) {
             _tuningSub    = TuningSubState::SELECT_STRING;
             _tuningString = 0;
             _tuningAttempt= 0;
+            for (int s = 0; s < NUM_STRINGS; s++) _motors.commandDamperEngage(s);
             break;
 
         case State::PERFORMING: {
@@ -196,10 +197,11 @@ void FSM::_duringTuning() {
                 return;
             }
             hal_selectTuningString(_tuningString);
-            _tuningAttempt   = 0;
-            _tuningPitchSum  = 0.0f;
-            _tuningReadCount = 0;
+            _tuningAttempt    = 0;
+            _tuningPitchSum   = 0.0f;
+            _tuningReadCount  = 0;
             _tuningPluckCount = 0;
+            _motors.commandDamperLift(_tuningString);
             printf("  [TUNING] String %d — target %.1f Hz\n",
                    _tuningString, _tuningTargetHz[_tuningString]);
             _tuningSub = TuningSubState::COMMANDING_SERVO;
@@ -247,10 +249,12 @@ void FSM::_duringTuning() {
 
             if (std::abs(error) <= TUNING_PITCH_THRESHOLD_HZ) {
                 printf("  [TUNING] String %d in tune.\n", _tuningString);
+                _motors.commandDamperEngage(_tuningString);
                 _tuningString++;
                 _tuningSub = TuningSubState::SELECT_STRING;
             } else if (_tuningAttempt >= TUNING_MAX_ATTEMPTS) {
                 printf("  [TUNING] String %d: attempt cap reached. Moving on.\n", _tuningString);
+                _motors.commandDamperEngage(_tuningString);
                 _tuningString++;
                 _tuningSub = TuningSubState::SELECT_STRING;
             } else {
@@ -296,6 +300,7 @@ void FSM::_duringPerforming() {
     const Note& note = _composer.getSequence()[_perfNoteIdx];
 
     if (!_perfFretDone) {
+        for (int s = 0; s < NUM_STRINGS; s++) _motors.commandDamperEngage(s);
         _motors.commandDamperLift(note.string_id);
         _motors.commandFret(note.string_id, note.note_index);
         if (_motors.isFretAtTarget(note.string_id) &&
@@ -348,8 +353,11 @@ void FSM::_duringPreComposing() {
             break;
 
         case PreCompSubState::NOTE_COMMANDING:
+            for (int s = 0; s < NUM_STRINGS; s++) _motors.commandDamperEngage(s);
+            _motors.commandDamperLift(_preCompStringIdx);
             _motors.commandFret(_preCompStringIdx, _preCompNoteIdx);
-            if (_motors.isFretAtTarget(_preCompStringIdx)) {
+            if (_motors.isFretAtTarget(_preCompStringIdx) &&
+                _motors.isDamperAtTarget(_preCompStringIdx)) {
                 _preCompSub = PreCompSubState::NOTE_PLAYING;
             }
             break;
@@ -360,6 +368,7 @@ void FSM::_duringPreComposing() {
                 _preCompPluckStart = now;
             } else if ((now - _preCompPluckStart) >= PRECOMP_PLUCK_HOLD_MS) {
                 _motors.commandFretLift(_preCompStringIdx);
+                _motors.commandDamperEngage(_preCompStringIdx);
 
                 // Seed Markov: record the transition from the previous note.
                 _composer.seed(_preCompLastNote, _preCompNoteIdx);
